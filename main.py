@@ -29,6 +29,24 @@ def process_command(command):
     if not text:
         return {"reply": "Kuch boliye, main sun raha hoon."}
 
+    # Chrome's hi-IN speech recognition often returns Hindi commands in Devanagari.
+    # Normalize common intent words and website names while keeping search terms intact.
+    hindi_words = {
+        "यूट्यूब": "youtube", "यू ट्यूब": "youtube", "गूगल": "google",
+        "फेसबुक": "facebook", "इंस्टाग्राम": "instagram", "लिंक्डइन": "linkedin",
+        "व्हाट्सएप": "whatsapp", "जीमेल": "gmail", "गिटहब": "github", "मैप्स": "maps",
+        "खोल दीजिए": " kholo", "खोलिए": " kholo", "खोलो": " kholo", "खोल दो": " kholo",
+        "खोल": " kholo", "ओपन": "open", "चलाओ": "play", "बजाओ": "play",
+        "प्ले": "play", "गाना": "song", "गाने": "song", "म्यूजिक": "music",
+        "समय": "time", "टाइम": "time", "बज रहे": "time", "बता दो": "tell",
+        "बताओ": "tell", "तारीख": "date", "तारीख़": "date", "दिनांक": "date",
+        "आज": "today", "सर्च करो": "search", "खोजो": "search", "ढूंढो": "search",
+        "ढूँढो": "search", "गूगल पर": "search", "मौसम": "weather",
+    }
+    for hindi, english in hindi_words.items():
+        text = text.replace(hindi, english)
+    text = " ".join(text.split())
+
     target = ""
     if text.startswith("open "):
         target = text[5:]
@@ -45,7 +63,7 @@ def process_command(command):
 
     if any(word in text for word in ("time", "samay", "kitne baje")):
         return {"reply": "Abhi " + datetime.now().strftime("%I:%M %p") + " baj rahe hain."}
-    if any(word in text for word in ("date", "tareekh", "aaj kya din")):
+    if any(word in text for word in ("date", "tareekh", "aaj kya din", "today")):
         return {"reply": "Aaj " + datetime.now().strftime("%A, %d %B %Y") + " hai."}
     if any(word in text for word in ("hello", "hi jarvis", "namaste", "salaam")):
         return {"reply": "Namaste! Main aapki kya madad karoon?"}
@@ -57,6 +75,9 @@ def process_command(command):
             if query.startswith(prefix):
                 query = query[len(prefix):]
                 break
+        if query.endswith(" search"):
+            query = query[:-7].strip()
+        query = query.replace(" today ", " ").replace(" tell ", " ")
         if query:
             return {"reply": f"{query} ke liye search khol raha hoon.", "url": "https://www.google.com/search?q=" + quote_plus(query)}
     if any(word in text for word in ("play ", "gaana", "song", "music")):
@@ -65,6 +86,7 @@ def process_command(command):
             if query.startswith(prefix):
                 query = query[len(prefix):]
                 break
+        query = query.replace(" play", "").replace(" today ", " ").strip()
         return {"reply": "YouTube par music dhoondh raha hoon.", "url": "https://www.youtube.com/results?search_query=" + quote_plus(query or "music")}
 
     return {"reply": "Yeh command abhi nahi aati. Website kholne, time/date batane, search karne ya YouTube par gaana dhoondhne ko kahiye."}

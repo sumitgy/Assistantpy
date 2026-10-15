@@ -37,18 +37,19 @@
     <h1>JARVIS</h1>
     <p class="sub">Aapka browser assistant</p>
     <div class="orb" id="orb" aria-hidden="true"><span>◉</span></div>
-    <div class="status" id="status" role="status">Likhein ya mic dabakar boliye</div>
+    <div class="status" id="status" role="status">Likhein ya mic dabakar pehle “Jarvis” boliye</div>
     <div class="controls">
       <input id="command" maxlength="300" placeholder="Jaise: YouTube kholo" aria-label="Jarvis ko command dein">
       <button id="send">Bhejein</button>
     </div>
-    <button id="mic">🎙️ &nbsp; Bolne ke liye dabayein</button>
+    <button id="mic">🎙️ &nbsp; Jarvis ko sunne ke liye dabayein</button>
     <section class="card">
       <h2>Jarvis</h2>
       <div id="reply">Namaste! Main taiyaar hoon.</div>
     </section>
     <section class="card">
       <h2>Aap yeh keh sakte hain</h2>
+      <p>Pehle mic dabakar “Jarvis” boliye. Uske “Haan, boliye” kehne ke baad command dein.</p>
       <p>“YouTube kholo” · “Google kholo” · “Samay batao” · “Aaj ki tareekh”</p>
       <p>“Search for Delhi weather” · “Play Arijit Singh”</p>
     </section>
@@ -61,7 +62,21 @@
     const mic = document.querySelector('#mic');
     const orb = document.querySelector('#orb');
 
-    async function sendCommand(value) {
+    let voiceSession = false;
+    let voiceMode = 'wake';
+    let awaitingReply = false;
+
+    function speakText(text, onDone) {
+      if (!('speechSynthesis' in window)) { if (onDone) onDone(); return; }
+      speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = /[\u0900-\u097f]/.test(text) ? 'hi-IN' : 'en-IN';
+      utterance.onend = () => { if (onDone) onDone(); };
+      utterance.onerror = () => { if (onDone) onDone(); };
+      speechSynthesis.speak(utterance);
+    }
+
+    async function sendCommand(value, fromVoice = false) {
       const command = (value || input.value).trim();
       if (!command) { status.textContent = 'Pehle koi command likhein ya boliye.'; return; }
       status.textContent = 'Jarvis soch raha hai…';
@@ -71,14 +86,17 @@
         const data = await response.json();
         reply.textContent = data.reply || 'Kuch gadbad hui.';
         status.textContent = 'Taiyaar';
-        if ('speechSynthesis' in window) {
-          speechSynthesis.cancel();
-          const utterance = new SpeechSynthesisUtterance(data.reply);
-          utterance.lang = /[\u0900-\u097f]/.test(data.reply) ? 'hi-IN' : 'en-IN';
-          speechSynthesis.speak(utterance);
-        }
         if (data.url) window.open(data.url, '_blank', 'noopener,noreferrer');
-      } catch (_) { status.textContent = 'Server se sampark nahi ho saka. Dobara try karein.'; }
+        if (fromVoice && voiceSession) {
+          status.textContent = data.reply + ' — ab “Jarvis” boliye.';
+          speakText(data.reply + ' Ab Jarvis boliye.', startWakeListening);
+        } else {
+          speakText(data.reply);
+        }
+      } catch (_) {
+        status.textContent = 'Server se sampark nahi ho saka. Dobara try karein.';
+        if (fromVoice && voiceSession) speakText('Server se sampark nahi ho saka. Ab Jarvis boliye.', startWakeListening);
+      }
       finally { document.querySelector('#send').disabled = false; }
     }
 
@@ -95,13 +113,66 @@
       recognition.lang = 'hi-IN';
       recognition.interimResults = false;
       recognition.maxAlternatives = 1;
+      function startWakeListening() {
+        if (!voiceSession) return;
+        awaitingReply = false;
+        voiceMode = 'wake';
+        try { recognition.start(); } catch (_) { /* A recognition session may still be closing. */ }
+      }
       mic.addEventListener('click', () => {
-        try { recognition.start(); } catch (_) { status.textContent = 'Mic pehle se chalu hai.'; }
+        if (voiceSession) {
+          voiceSession = false;
+          if ('speechSynthesis' in window) speechSynthesis.cancel();
+          recognition.stop();
+          status.textContent = 'Voice assistant band hai.';
+          mic.textContent = '🎙️  Jarvis ko sunne ke liye dabayein';
+          return;
+        }
+        voiceSession = true;
+        mic.textContent = '■  Voice assistant band karein';
+        startWakeListening();
       });
-      recognition.onstart = () => { orb.classList.add('listening'); status.textContent = 'Sun raha hoon…'; mic.disabled = true; };
-      recognition.onend = () => { orb.classList.remove('listening'); mic.disabled = false; };
-      recognition.onerror = event => { status.textContent = event.error === 'not-allowed' ? 'Microphone permission dein, ya text likhein.' : 'Awaaz samajh nahi aayi. Dobara try karein.'; };
-      recognition.onresult = event => { const heard = event.results[0][0].transcript; input.value = heard; sendCommand(heard); };
+      recognition.onstart = () => { orb.classList.add('listening'); status.textContent = voiceMode === 'wake' ? '“Jarvis” boliye…' : 'Haan, boliye…'; };
+      recognition.onend = () => {
+        orb.classList.remove('listening');
+        if (!voiceSession) return;
+        if (!awaitingReply && voiceMode === 'wake') {
+          setTimeout(startWakeListening, 250);
+        }
+      };
+      recognition.onerror = event => {
+        orb.classList.remove('listening');
+        if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+          voiceSession = false;
+          mic.textContent = '🎙️  Jarvis ko sunne ke liye dabayein';
+          status.textContent = 'Microphone permission dein, ya text likhein.';
+        } else if (voiceSession) {
+          status.textContent = 'Awaaz samajh nahi aayi. “Jarvis” phir se boliye…';
+        }
+      };
+      recognition.onresult = event => {
+        const heard = event.results[event.results.length - 1][0].transcript.trim();
+        if (voiceMode === 'wake') {
+          if (/\bjarvis\b/i.test(heard) || /जार्विस/i.test(heard)) {
+            voiceMode = 'command';
+            recognition.stop();
+            status.textContent = 'Haan, boliye…';
+            speakText('Haan, boliye.', () => {
+              if (voiceSession) {
+                try { recognition.start(); } catch (_) { status.textContent = 'Command sunne ke liye mic button dobara dabayein.'; }
+              }
+            });
+          } else {
+            status.textContent = 'Wake word “Jarvis” ka intezar hai…';
+          }
+          return;
+        }
+        input.value = heard;
+        voiceMode = 'wake';
+        awaitingReply = true;
+        recognition.stop();
+        sendCommand(heard, true);
+      };
     }
   </script>
 </body>
